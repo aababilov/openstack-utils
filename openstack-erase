@@ -1,0 +1,10 @@
+#!/bin/sh
+
+osng-services stop
+
+RPM_PKGS="
+$(rpm -qa 'openstack*')
+$(rpm -qa 'python-(glance|nova|keystone)*')
+"
+
+yum erase $RPM_PKGS

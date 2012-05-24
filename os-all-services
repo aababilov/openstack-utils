@@ -1,0 +1,35 @@
+#!/bin/sh
+
+start()
+{
+    for i in messagebus libvirtd mysqld rabbitmq-server; do
+        service $i start
+    done
+    osng-services start
+}
+
+stop()
+{
+    osng-services stop
+    for i in rabbitmq-server mysqld libvirtd; do
+        service $i stop
+    done
+    rm -fv /var/run/{console-kit-daemon.pid,messagebus.pid}
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        stop
+        start
+        ;;
+    *)
+        echo "Usage: os-all-service {start|stop|restart}"
+        ;;
+esac
+

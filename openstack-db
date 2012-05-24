@@ -1,0 +1,14 @@
+#!/bin/sh -e
+
+if [ "x$1" = "xrecreate" ]; then
+    for srv in nova keystone glance; do
+        osc-mysql recreate $srv
+    done
+fi
+
+sudo -u nova nova-manage db sync
+echo "nova db is updated"
+sudo -u glance glance-manage db_sync
+echo "glance db is updated"
+sudo -u keystone keystone-manage db_sync
+echo "keystone db is updated"
