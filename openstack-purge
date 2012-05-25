@@ -1,4 +1,0 @@
-#!/bin/sh
-
-DIRS=$(ls -d /etc/{keystone,dashboard,nova,glance} /var/{lib,log,run}/{keystone,dashboard,nova,glance} /usr/lib/python*/site-packages/{keystone,nova,glance} 2>/dev/null)
-rm -rf $DIRS

@@ -1,0 +1,37 @@
+#!/bin/sh
+
+
+OTHER_DAEMONS="messagebus libvirtd mysqld rabbitmq-server"
+OPENSTACK_DAEMONS=$(echo keystone nova-{api,compute,network,objectstore,scheduler.vncproxy} \
+    glance-{api,registry})
+
+function go() {
+    TARGET_DAEMONS="$OPENSTACK_DAEMONS"
+    if [ "x$2" = "xall" ]; then
+        TARGET_DAEMONS="$OTHER_DAEMONS $TARGET_DAEMONS"        
+    fi
+    if [ "x$1" = "xstop" ]; then
+        TARGET_DAEMONS=$(echo $TARGET_DAEMONS|tac -s' ')
+    fi
+    case "$1" in
+        start|stop|status)
+            for i in $TARGET_DAEMONS; do
+                [ -x "/etc/init.d/$i" ] &&/etc/init.d/$i $1
+            done
+            ;;        
+        restart)
+            shift
+            go stop "$@"
+            go start "$@"
+            ;;
+        zap)
+            rm -fv /var/run/{console-kit-daemon.pid,messagebus.pid}
+            rm -fv /var/run/{nova,glance}/*pid
+            ;;                
+        *)
+            echo "Usage: $0 {start|stop|restart|status|zap} [all]"
+            ;;
+    esac
+}
+
+go "$@"

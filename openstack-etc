@@ -1,0 +1,90 @@
+#!/bin/sh
+
+
+function setup_keystone_auth() {
+    sed -i 's#%SERVICE_TENANT_NAME%#systenant#' "$@"
+    sed -i 's#%SERVICE_USER%#admin#' "$@"
+    sed -i "s#%SERVICE_PASSWORD%#${ADMIN_PASSWORD}#" "$@"
+}
+
+function keystone_client() {
+    keystone --endpoint http://main-node:35357/v2.0 --token ADMIN "$@"
+}
+
+function get_id() {
+    line=$(keystone_client "$1-list" | grep "$2")
+    if [ "$?" != "0" ]; then
+        return 1
+    fi
+    echo $line | while read a id c; do echo $id; done
+}
+
+function setup() {
+    ADMIN_PASSWORD=$(uuidgen)
+    echo "keystone ADMIN_PASSWORD is ${ADMIN_PASSWORD}"
+
+    cd /etc/glance
+    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/glance#' glance-registry.conf 
+    setup_keystone_auth glance-{registry,api}-paste.ini
+    echo "glance config is updated"
+
+    cd /etc/nova
+    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/nova#' nova.conf 
+    setup_keystone_auth api-paste.ini
+    echo "nova config is updated"
+
+    cd /etc/keystone/
+    sed -i 's#^connection.*#connection = mysql://nova:nova@main-node/keystone#' keystone.conf 
+    sed -i 's#localhost#main-node#' default_catalog.templates 
+    echo "keystone config is updated"
+
+    /etc/init.d/keystone restart
+    get_id tenant systenant || keystone_client tenant-create --name systenant
+    get_id role Admin || keystone_client role-create --name Admin
+    ADMIN_USER_ID=$(get_id user admin)
+    if [ -n "$ADMIN_USER_ID" ]; then
+        keystone_client user-password-update --pass "$ADMIN_PASSWORD" "$ADMIN_USER_ID"
+    else
+        keystone_client user-create --name admin --pass "$ADMIN_PASSWORD"
+        ADMIN_USER_ID=$(get_id user admin)
+    fi
+    keystone_client user-role-add --user "$ADMIN_USER_ID" --role `get_id role Admin` --tenant_id `get_id tenant systenant`
+    echo "admin user is updated"
+}
+
+function purge() {
+    rm -rfv /etc/{glance,nova,keystone}
+}
+
+function save() {
+    tar -cvzf ${1:-.}/openstack-etc.$(date '+%Y.%m.%d-%R').tar.gz /etc/{glance,nova,keystone}
+}
+
+function unpack() {
+    tar -xvf "$1" -C /
+}
+
+
+ACTION="$1"
+shift
+
+case "$ACTION" in
+    save)
+        save
+	;;
+    replace)
+	purge
+	unpack "$@"
+	;;
+    purge)
+	purge
+	;;
+    setup)
+        setup
+        ;;
+    *)
+        echo "Usage: $0 (save|replace|purge|setup)"
+        exit 1
+        ;;
+
+esac
