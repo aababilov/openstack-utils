@@ -1,0 +1,111 @@
+#!/bin/sh
+
+function get_date() {
+    date '+%Y.%m.%d-%H.%M'
+}
+
+DB_USER=nova
+DB_PASS=nova
+DB_ROOT_PWD=nova
+
+function do_virgin() {
+    for DB_NAME in $@; do        
+        CC_HOST="127.0.0.1 $(hostname) localhost" # IPv4 address
+        
+        echo "recreating \`$DB_NAME' db"
+        mysqladmin -uroot -p$DB_ROOT_PWD -f drop $DB_NAME || true
+        mysqladmin -uroot -p$DB_ROOT_PWD create $DB_NAME
+        echo "granting access to \`$DB_NAME' for user \`$DB_USER'"
+        for h in $HOSTS $CC_HOST; do
+            echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'$h' IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS mysql
+        done
+        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO $DB_USER IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS mysql
+        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO root IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS
+
+        echo "\`${DB_NAME}' db is a virgin"
+    done
+}
+
+function do_sync() {
+    for srv in $@; do
+        case "$srv" in
+            keystone)
+                sudo -u keystone keystone-manage db_sync
+                ;;
+            nova)
+                nova-manage db sync
+                ;;
+            glance)
+                sudo -u glance glance-manage db_sync
+                ;;
+        esac
+        echo "\`$srv' db is synchronized"
+    done
+}
+
+function do_create() {
+    do_virgin "$@"
+    do_sync "$@"
+}
+
+function do_migrate() {
+    for srv in $@; do
+        case "$srv" in
+            keystone)
+                KEYSTONE_DUMP="/tmp/keystone.$(get_date).sql"
+                mysqldump -u$DB_USER -p$DB_PASS keystone > "$KEYSTONE_DUMP"
+                do_virgin keystone keystoneold
+                mysql -u$DB_USER -p$DB_PASS keystoneold < "$KEYSTONE_DUMP"
+                sudo -u keystone keystone-manage db_sync
+                sudo -u keystone keystone-manage import_legacy "mysql://$DB_USER:$DB_PASS@localhost/keystoneold" \
+                    && rm -f "$KEYSTONE_DUMP"
+                ;;
+            nova)
+                nova-manage db sync
+                ;;
+            glance)
+                sudo -u glance glance-manage db_sync
+                ;;
+            *)
+                echo "unknown service $srv"
+                continue
+        esac && echo "\`$srv' db has migrated" || echo "\`$srv' db has NOT migrated"
+    done
+}
+
+function do_populate() {
+    if [ ! -d "$1" ]; then
+        echo "usage: $0 populate <directory> [services, i.e. nova glance keystone]"
+        exit 1
+    fi
+    SCRIPT_DIR="$1"
+    shift
+    SERVICES="$*"
+    [ -z "$SERVICES" ] && SERVICES="nova glance keystone"
+    do_virgin "$SERVICES"
+    for srv in $SERVICES; do
+        for f in "${SCRIPT_DIR}/${srv}"*; do
+            [ -r "$f" ] || continue
+            mysql -u$DB_USER -p$DB_PASS $srv < "$f"
+            echo "\`$srv' db is populated with \`$f'"
+        done
+    done
+}
+
+ACTION="$1"
+shift
+
+case "$ACTION" in
+    virgin|sync|create|migrate)
+        SERVICES="$*"
+        [ -z "$SERVICES" ] && SERVICES="nova glance keystone"
+        "do_${ACTION}" "$SERVICES"
+        ;;
+    populate)
+        do_populate "$@"
+        ;;
+    *)
+        echo "Usage: $0 (virgin|sync|create|migrate|populate)"
+        exit 1
+        ;;
+esac

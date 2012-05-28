@@ -1,9 +1,15 @@
 #!/bin/sh
 
-
-DIRS="$(ls -d /etc/{keystone,nova,glance} \
+DIRS="$(ls -d /usr/bin/{keystone,nova,glance}*  \
+/etc/{keystone,nova,glance} \
 /var/{lib,log,run}/{keystone,nova,glance} \
-/usr/lib/python*/site-packages/{keystone,nova,glance} 2>/dev/null)"
+/usr/lib/python*/site-packages/*{keystone,nova,glance}* \
+/etc/init.d/{keystone,glance}-* \
+/etc/init.d/nova-[^b]* 2>/dev/null)"
+
+function get_date() {
+    date '+%Y.%m.%d-%H.%M'
+}
 
 function do_install() {
     PKGS="openstack-glance
@@ -36,38 +42,10 @@ function do_install() {
     echo "installing $1"
     shift
     
-    yum -y install libvirt mysql-server MySQL-python "$@"
-    for srv in libvirtd mysqld rabbitmq-server; do
-        chkconfig $srv on
-        /etc/init.d/$srv start
-    done
-    
+    yum install libvirt mysql-server MySQL-python "$@"
     yum install $PKGS python-keystoneclient "$@"
 }
 
-function do_mysql() {
-    SERVICES=${1:-nova glance keystone}
-
-    for DB_NAME in $SERVICES; do
-        DB_USER=nova
-        DB_PASS=nova
-        PWD=nova
-        
-        CC_HOST="127.0.0.1 $(hostname) localhost" # IPv4 address
-        
-        echo "recreating $DB_NAME"
-        mysqladmin -uroot -p$PWD -f drop $DB_NAME || true
-        mysqladmin -uroot -p$PWD create $DB_NAME
-        echo "granting access to $DB_NAME"
-        for h in $HOSTS $CC_HOST; do
-            echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'$h' IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS mysql
-        done
-        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO $DB_USER IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS mysql
-        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO root IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_PASS mysql
-        
-        echo "done with ${DB_NAME}!"
-    done
-}
 
 function do_erase() {
     PKGS="
@@ -75,17 +53,6 @@ $(rpm -qa 'openstack*')
 $(rpm -qa 'python-(glance|nova|keystone)*')
 "
     yum erase $PKGS "$@"
-}
-
-function do_create_db() {
-    do_mysql
-
-    nova-manage db sync
-    echo "nova db is synched"
-    sudo -u glance glance-manage db_sync
-    echo "glance db is synched"
-    sudo -u keystone keystone-manage db_sync
-    echo "keystone db is synched"
 }
 
 ACTION="$1"
@@ -99,19 +66,13 @@ case "$ACTION" in
         do_erase
         ;;
     purge)
-        rm -rf $DIRS
+        rm -rfv $DIRS 
         ;;
     dump)
-        tar -cf ${1:-.}/openstack-dump.$(date '+%Y.%m.%d-%R').tar $DIRS
-        ;;
-    mysql)
-        do_mysql "$@"
-        ;;
-    create_db)
-        do_create_db "$@"
+        tar -cf "${1:-.}/openstack-dump.$(get_date).tar" $DIRS
         ;;
     *)
-        echo "Usage: $0 (install|erase|purge|dump|mysql|sync_db)"
+        echo "Usage: $0 (install|erase|purge|dump)"
         exit 1
         ;;
 esac
