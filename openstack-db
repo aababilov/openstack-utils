@@ -37,7 +37,9 @@ function do_sync() {
                 nova-manage db sync
                 ;;
             glance)
-                sudo -u glance glance-manage db_sync
+                # FIXME: why it has stopped working?
+                #sudo -u glance glance-manage db_sync
+                sudo -u glance glance-manage upgrade
                 ;;
         esac
         echo "\`$srv' db is synchronized"
@@ -93,11 +95,18 @@ function do_populate() {
     done
 }
 
+function do_dump() {
+    for srv in $SERVICES; do
+        mysqldump "-u$DB_USER" "-p$DB_PWD" $srv > "${srv}-0.sql"
+    done
+}
+
+
 ACTION="$1"
 shift
 
 case "$ACTION" in
-    virgin|sync|create|migrate)
+    virgin|sync|create|migrate|dump)
         SERVICES="$*"
         [ -z "$SERVICES" ] && SERVICES="nova glance keystone"
         "do_${ACTION}" "$SERVICES"

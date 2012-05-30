@@ -51,6 +51,7 @@ function do_essex_keystone_db() {
     echo "setting keystone ADMIN_PASSWORD to ${ADMIN_PASSWORD}"
 
     /etc/init.d/keystone restart
+    sleep 2
     get_id tenant systenant >/dev/null || keystone_client tenant-create --name systenant
     get_id role Admin >/dev/null || keystone_client role-create --name Admin
     ADMIN_USER_ID=$(get_id user admin)
