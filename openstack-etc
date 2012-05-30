@@ -1,8 +1,12 @@
-#!/bin/sh
+#!/bin/bash
+
+DB_USER=${DB_USER:-nova}
+DB_PWD=${DB_PWD:-nova}
+
 
 # this is a line to retrieve admin's token from diablo keystone database
 # mysql -unova -pnova keystone -e "select id from token where user_id = (select id from users where name='admin' limit 1) order by expires desc limit 1;" -B | tail -1
-    
+
 function get_date() {
     date '+%Y.%m.%d-%H.%M'
 }
@@ -13,14 +17,14 @@ function guess_release() {
         echo "unknown"
         return 1
     fi
-    grep -q "^--" /etc/nova/nova.conf && echo "diablo" || echo "essex"    
+    grep -q "^--" /etc/nova/nova.conf && echo "diablo" || echo "essex"
 }
 
 function do_essex_setup() {
-    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/glance#' /etc/glance/glance-registry.conf 
-    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/nova#' /etc/nova/nova.conf 
-    sed -i 's#^connection.*#connection = mysql://nova:nova@main-node/keystone#' /etc/keystone/keystone.conf 
-    sed -i 's#localhost#main-node#' /etc/keystone/default_catalog.templates 
+    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/glance#" /etc/glance/glance-registry.conf
+    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/nova#" /etc/nova/nova.conf
+    sed -i "s#^connection.*#connection = mysql://${DB_USER}:${DB_PWD}@main-node/keystone#" /etc/keystone/keystone.conf
+    sed -i 's#localhost#main-node#' /etc/keystone/default_catalog.templates
 
     KEYSTONE_CLIENTS=$(echo /etc/glance/glance-{registry,api}-paste.ini /etc/nova/api-paste.ini)
     ADMIN_PASSWORD=$(uuidgen)
@@ -61,9 +65,9 @@ function do_essex_keystone_db() {
 }
 
 function do_diablo_setup() {
-    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/glance#' /etc/glance/glance-registry.conf 
-    sed -i 's#^--sql_connection.*#--sql_connection=mysql://nova:nova@main-node/nova#' /etc/nova/nova.conf
-    sed -i 's#^sql_connection.*#sql_connection = mysql://nova:nova@main-node/keystone#' /etc/keystone/keystone.conf
+    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/glance#" /etc/glance/glance-registry.conf
+    sed -i "s#^--sql_connection.*#--sql_connection=mysql://${DB_USER}:${DB_PWD}@main-node/nova#" /etc/nova/nova.conf
+    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/keystone#" /etc/keystone/keystone.conf
 
     cp /etc/keystone/nova-api-paste.ini /etc/nova/api-paste.ini
     sed -i 's#^pipeline.*apiv1app.*$#pipeline = versionnegotiation authtoken auth-context apiv1app#' /etc/glance/glance-api.conf

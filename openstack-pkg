@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 DIRS="$(ls -d /usr/bin/{keystone,nova,glance}*  \
 /etc/{keystone,nova,glance} \
@@ -38,38 +38,86 @@ function do_install() {
             exit 1
             ;;
     esac
-    
+
     echo "installing $1"
     shift
-    
     yum install libvirt mysql-server MySQL-python "$@"
     yum install $PKGS python-keystoneclient "$@"
 }
 
 
 function do_erase() {
-    PKGS="
-$(rpm -qa 'openstack*')
-$(rpm -qa 'python-(glance|nova|keystone)*')
-"
-    yum erase $PKGS "$@"
+    PKGS="$(rpm -qa '(openstack|python-(glance|nova|keystone))*')"
+    [ -n "$PKGS" ] && yum erase $PKGS "$@"
+}
+
+function _install() {
+    RELEASE="$1"
+    DB_SETTER="$2"
+    DB_SCRIPT_DIR="$3"
+    shift 3
+    # always stop and purge
+    openstack-daemons stop
+    openstack-pkg erase "$@"
+    openstack-etc purge
+
+    openstack-pkg install "$RELEASE" "$@"
+    openstack-etc setup
+
+    case "$DB_SETTER" in
+        migrate)
+            openstack-db migrate
+            ;;
+        populate)
+            openstack-db populate "$DB_SCRIPT_DIR"
+            ;;
+        sync)
+            openstack-db sync
+            ;;
+    esac
+
+    openstack-etc keystone_db
+    openstack-daemons start all
+}
+
+function do_install_full() {
+    case "$1" in
+        essex|diablo)
+            RELEASE="$1"
+            ;;
+        *)
+            echo "usage: $0 install_full (essex|diablo) [-y] [<sql scripts directory>]"
+            exit 1
+    esac
+    shift
+    INSTALL_OPT=""
+    DB_SCRIPT_DIR=""
+    for i in "$@"; do
+        [ "x$i" == "x-y" ] && INSTALL_OPT="-y"
+        [ -n "$i" -a -d "$i" ] && DB_SCRIPT_DIR="$i"
+    done
+    [ -n "$DB_SCRIPT_DIR" ] && DB_SETTER="populate" || DB_SETTER="sync"
+    _install "$RELEASE" "$DB_SETTER" "$DB_SCRIPT_DIR" $INSTALL_OPT
+}
+
+function do_migrate() {
+    _install essex migrate ""
+}
+
+function do_purge() {
+    rm -rfv $DIRS
+}
+
+function do_dump() {
+    tar -cf "${1:-.}/openstack-dump.$(get_date).tar" $DIRS
 }
 
 ACTION="$1"
 shift
 
 case "$ACTION" in
-    install)
-        do_install "$@"
-        ;;
-    erase)
-        do_erase
-        ;;
-    purge)
-        rm -rfv $DIRS 
-        ;;
-    dump)
-        tar -cf "${1:-.}/openstack-dump.$(get_date).tar" $DIRS
+    install|erase|install_full|migrate|purge|dump)
+        "do_${ACTION}" "$@"
         ;;
     *)
         echo "Usage: $0 (install|erase|purge|dump)"

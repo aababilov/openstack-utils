@@ -1,26 +1,27 @@
-#!/bin/sh
+#!/bin/bash
+
+DB_USER=${DB_USER:-nova}
+DB_PWD=${DB_PWD:-nova}
+DB_ROOT_PWD=${DB_ROOT_PWD:-nova}
+
 
 function get_date() {
     date '+%Y.%m.%d-%H.%M'
 }
 
-DB_USER=nova
-DB_PASS=nova
-DB_ROOT_PWD=nova
-
 function do_virgin() {
     for DB_NAME in $@; do
         CC_HOST="127.0.0.1 $(hostname) localhost" # IPv4 address
-        
+
         echo "recreating \`$DB_NAME' db"
-        mysqladmin -uroot -p$DB_ROOT_PWD -f drop $DB_NAME || true
-        mysqladmin -uroot -p$DB_ROOT_PWD create $DB_NAME
+        mysqladmin -uroot "-p$DB_ROOT_PWD" -f drop "$DB_NAME" || true
+        mysqladmin -uroot "-p$DB_ROOT_PWD" create "$DB_NAME"
         echo "granting access to \`$DB_NAME' for user \`$DB_USER'"
         for h in $HOSTS $CC_HOST; do
-            echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'$h' IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_ROOT_PWD mysql
+            echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'$h' IDENTIFIED BY '$DB_PWD';" | mysql -uroot "-p$DB_ROOT_PWD" mysql
         done
-        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO $DB_USER IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_ROOT_PWD mysql
-        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO root IDENTIFIED BY '$DB_PASS';" | mysql -uroot -p$DB_ROOT_PWD
+        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO $DB_USER IDENTIFIED BY '$DB_PWD';" | mysql -uroot "-p$DB_ROOT_PWD" mysql
+        echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO root IDENTIFIED BY '$DB_PWD';" | mysql -uroot "-p$DB_ROOT_PWD"
 
         echo "\`${DB_NAME}' db is a virgin"
     done
@@ -53,11 +54,11 @@ function do_migrate() {
         case "$srv" in
             keystone)
                 KEYSTONE_DUMP="/tmp/keystone.$(get_date).sql"
-                mysqldump -u$DB_USER -p$DB_PASS keystone > "$KEYSTONE_DUMP"
+                mysqldump -u$DB_USER -p$DB_PWD keystone > "$KEYSTONE_DUMP"
                 do_virgin keystone keystoneold
-                mysql -u$DB_USER -p$DB_PASS keystoneold < "$KEYSTONE_DUMP"
+                mysql "-u$DB_USER" "-p$DB_PWD" keystoneold < "$KEYSTONE_DUMP"
                 sudo -u keystone keystone-manage db_sync
-                sudo -u keystone keystone-manage import_legacy "mysql://$DB_USER:$DB_PASS@localhost/keystoneold" \
+                sudo -u keystone keystone-manage import_legacy "mysql://$DB_USER:$DB_PWD@localhost/keystoneold" \
                     && rm -f "$KEYSTONE_DUMP"
                 ;;
             nova)
@@ -75,18 +76,18 @@ function do_migrate() {
 
 function do_populate() {
     if [ ! -d "$1" ]; then
-        echo "usage: $0 populate <directory> [services, i.e. nova glance keystone]"
+        echo "usage: $0 populate <sql scripts directory> [services, i.e. nova glance keystone]"
         exit 1
     fi
-    SCRIPT_DIR="$1"
+    DB_SCRIPT_DIR="$1"
     shift
     SERVICES="$*"
     [ -z "$SERVICES" ] && SERVICES="nova glance keystone"
     do_virgin "$SERVICES"
     for srv in $SERVICES; do
-        for f in "${SCRIPT_DIR}/${srv}"*; do
+        for f in "${DB_SCRIPT_DIR}/${srv}"*; do
             [ -r "$f" ] || continue
-            mysql -u$DB_USER -p$DB_PASS $srv < "$f"
+            mysql "-u$DB_USER" "-p$DB_PWD" $srv < "$f"
             echo "\`$srv' db is populated with \`$f'"
         done
     done
