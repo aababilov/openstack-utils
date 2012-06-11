@@ -11,23 +11,14 @@ function get_date() {
     date '+%Y.%m.%d-%H.%M'
 }
 
-function guess_release() {
-    if [ ! -r /etc/nova/nova.conf ]; then
-        echo "Cannot guess openstack release. Please check your /etc/nova/nova.conf" >&2
-        echo "unknown"
-        return 1
-    fi
-    grep -q "^--" /etc/nova/nova.conf && echo "diablo" || echo "essex"
-}
-
 function do_essex_setup() {
-    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/glance#" /etc/glance/glance-registry.conf
+    sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/glance#" /etc/glance/glance-{api,registry}.conf
     sed -i "s#^sql_connection.*#sql_connection = mysql://${DB_USER}:${DB_PWD}@main-node/nova#" /etc/nova/nova.conf
     sed -i "s#^connection.*#connection = mysql://${DB_USER}:${DB_PWD}@main-node/keystone#" /etc/keystone/keystone.conf
     sed -i 's#localhost#main-node#' /etc/keystone/default_catalog.templates
 
     KEYSTONE_CLIENTS=$(echo /etc/glance/glance-{registry,api}-paste.ini /etc/nova/api-paste.ini)
-    ADMIN_PASSWORD=$(uuidgen)
+    ADMIN_PASSWORD="$1"
     echo "keystone ADMIN_PASSWORD is ${ADMIN_PASSWORD}"
     sed -i 's#%SERVICE_TENANT_NAME%#systenant#' $KEYSTONE_CLIENTS
     sed -i 's#%SERVICE_USER%#admin#' $KEYSTONE_CLIENTS
@@ -52,6 +43,7 @@ function do_essex_keystone_db() {
 
     /etc/init.d/keystone restart
     sleep 2
+    set -e
     get_id tenant systenant >/dev/null || keystone_client tenant-create --name systenant
     get_id role Admin >/dev/null || keystone_client role-create --name Admin
     ADMIN_USER_ID=$(get_id user admin)
@@ -75,7 +67,7 @@ function do_diablo_setup() {
     sed -i 's#^pipeline.*registryapp.*$#pipeline = authtoken auth-context registryapp#' /etc/glance/glance-registry.conf
 
     KEYSTONE_CLIENTS=$(echo /etc/glance/glance-{registry,api}.conf /etc/nova/api-paste.ini)
-    ADMIN_TOKEN=$(uuidgen)
+    ADMIN_TOKEN="$1"
     echo "keystone ADMIN_TOKEN is ${ADMIN_TOKEN}"
     sed -i "s#999888777666#${ADMIN_TOKEN}#" $KEYSTONE_CLIENTS
 }
@@ -116,10 +108,13 @@ case "$ACTION" in
 	do_purge
 	;;
     setup|keystone_db)
-        release="$(guess_release)"
-        [ "x$?" != "x0" ] && exit 1
-        echo "$ACTION for $release"
-        "do_${release}_${ACTION}"
+        nova-manage version | grep -q '^2011' && RELEASE="diablo" || RELEASE="essex"
+        echo "$ACTION for $RELEASE"
+        EXTRA=""
+        if [ "$ACTION" == setup ]; then
+            [ -z "$2" ] && EXTRA="$(uuidgen)" || EXTRA="$2"
+        fi
+        "do_${RELEASE}_${ACTION}" $EXTRA
         ;;
     *)
         echo "Usage: $0 (save|replace|purge|setup|keystone_db)"

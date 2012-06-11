@@ -8,7 +8,7 @@ Prerequisities
 * `DB_ROOT_PWD` environment variable that contains root password for
   mysql, `DB_USER` as OpenStack mysql user and `DB_PWD` as its password
   (if not set, these variables default to `nova`).
-
+* disabled selinux
 
 Diablo installation guide
 =========================
@@ -45,6 +45,19 @@ Setup credential environment variables and list VMs and images:
     nova list
     nova image-list
 
+Add an image if necessary.
+
+::
+    wget http://osc-build.vm.griddynamics.net/images/mini_image.img
+    glance add name=min_image is_public=True disk_format=raw container_format=ovf < mini_image.img
+
+Check networks and add one if necessary.
+
+::
+    nova-manage network list
+    nova-manage network create --label mynet1 --bridge_interface=eth0 --vlan=105 --fixed_range_v4 10.10.105.0/24
+
+    
 Try to start an instance.
 
 ::

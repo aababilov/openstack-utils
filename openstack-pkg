@@ -4,104 +4,134 @@ DIRS="$(ls -d /usr/bin/{keystone,nova,glance}*  \
 /etc/{keystone,nova,glance} \
 /var/{lib,log,run}/{keystone,nova,glance} \
 /usr/lib/python*/site-packages/*{keystone,nova,glance}* \
-/etc/init.d/{keystone,glance}-* \
+/etc/init.d/{keystone,glance}* \
 /etc/init.d/nova-[^b]* 2>/dev/null)"
+
+INSTALL_OPT=""
+NODE_ROLE=cc
+RELEASE=diablo
+DB_SCRIPT_DIR=""
 
 function get_date() {
     date '+%Y.%m.%d-%H.%M'
 }
 
 function do_install() {
-    PKGS="openstack-glance
- openstack-keystone
- python-novaclient
- openstack-nova-api
- openstack-nova-compute
- openstack-nova-network
- openstack-nova-objectstore
- openstack-nova-scheduler
- openstack-nova-volume
+    COMMON_PKGS="
+python-novaclient
+python-keystoneclient
+openstack-nova-compute
+openstack-nova-network
 "
-
-    case "$1" in
-        essex)
-            OLD_PKGS="$PKGS"
-            PKGS=""
-            for p in $OLD_PKGS; do
-	        PKGS="$PKGS $(echo $p |  sed -r 's/([a-z]+-[a-z]+)/\1-essex/')"
-            done
-            ;;
-        diablo)
-            ;;
-        *)
-            echo "usage: $0 install (essex|diablo) [-y]"
-            exit 1
-            ;;
-    esac
-
-    echo "installing $1"
-    shift
-    yum install libvirt mysql-server MySQL-python "$@"
-    yum install $PKGS python-keystoneclient "$@"
+    CC_PKGS="
+openstack-keystone
+openstack-glance
+openstack-nova-api
+openstack-nova-objectstore
+openstack-nova-scheduler
+openstack-nova-volume
+"
+    for i in "$@"; do
+        case "$i" in
+            essex|diablo)
+                RELEASE="$i"
+                ;;
+            cc|compute)
+                NODE_ROLE="$i"
+                ;;
+            -y)
+                INSTALL_OPT="$i"
+                ;;
+            *)
+                echo "usage: $0 install (essex|diablo) [cc|compute] [-y]"
+                exit 1
+                ;;
+        esac
+    done
+    if [ "$NODE_ROLE" == cc ]; then
+        PKGS="$CC_PKGS $COMMON_PKGS"
+    else
+        PKGS="$COMMON_PKGS"
+    fi
+    if [ "$RELEASE" == essex ]; then
+      	PKGS="$(echo $PKGS |  sed -r 's/([a-z]+-[a-z]+)([-a-z])?/\1-essex\2/g')"
+    fi
+    echo "installing $RELEASE for $NODE_ROLE node"
+    set -e
+    yum install libvirt mysql-server MySQL-python $INSTALL_OPT
+    yum install $PKGS $INSTALL_OPT
 }
 
 
 function do_erase() {
     PKGS="$(rpm -qa '(openstack|python-(glance|nova|keystone))*')"
-    [ -n "$PKGS" ] && yum erase $PKGS "$@"
+    if [ -n "$PKGS" ]; then
+        yum erase $PKGS "$@"
+    fi
 }
 
 function _install() {
-    RELEASE="$1"
-    DB_SETTER="$2"
-    DB_SCRIPT_DIR="$3"
-    shift 3
     # always stop and purge
     openstack-daemons stop
-    openstack-pkg erase "$@"
+    openstack-pkg erase $INSTALL_OPT
     openstack-etc purge
 
-    openstack-pkg install "$RELEASE" "$@"
-    openstack-etc setup
+    set -e
+    openstack-pkg install "$RELEASE" $INSTALL_OPT
+    openstack-etc setup $ADMIN_PASSWORD
 
-    case "$DB_SETTER" in
-        migrate)
-            openstack-db migrate
-            ;;
-        populate)
-            openstack-db populate "$DB_SCRIPT_DIR"
-            ;;
-        sync)
-            openstack-db sync
-            ;;
-    esac
-
-    openstack-etc keystone_db
-    openstack-daemons start all
+    if [ "$NODE_ROLE" == cc ]; then
+        case "$DB_SETTER" in
+            migrate)
+                openstack-db migrate
+                ;;
+            populate)
+                openstack-db populate "$DB_SCRIPT_DIR"
+                ;;
+            sync)
+                openstack-db sync
+                ;;
+        esac
+        openstack-etc keystone_db
+    fi
 }
 
 function do_install_full() {
-    case "$1" in
-        essex|diablo)
-            RELEASE="$1"
-            ;;
-        *)
-            echo "usage: $0 install_full (essex|diablo) [-y] [<sql scripts directory>]"
-            exit 1
-    esac
-    shift
-    INSTALL_OPT=""
-    DB_SCRIPT_DIR=""
+    DB_SETTER="sync"
+    ADMIN_PASSWORD=
     for i in "$@"; do
-        [ "x$i" == "x-y" ] && INSTALL_OPT="-y"
-        [ -n "$i" -a -d "$i" ] && DB_SCRIPT_DIR="$i"
+        case "$i" in
+            essex|diablo)
+                RELEASE="$i"
+                ;;
+            cc|compute)
+                NODE_ROLE="$i"
+                ;;
+            -y)
+                INSTALL_OPT="$i"
+                ;;
+            --help|-h|help)
+                echo "usage: $0 install_full (essex|diablo) [cc|compute] [-y] [<sql scripts directory>] [admin token or password]"
+                exit 0
+                ;;
+            *)
+                if [ -d "$i" ]; then
+                    DB_SCRIPT_DIR="$i"
+                    DB_SETTER="populate"
+                else
+                    ADMIN_PASSWORD="$i"
+                fi
+                ;;
+        esac
     done
-    [ -n "$DB_SCRIPT_DIR" ] && DB_SETTER="populate" || DB_SETTER="sync"
-    _install "$RELEASE" "$DB_SETTER" "$DB_SCRIPT_DIR" $INSTALL_OPT
+    _install
 }
 
 function do_migrate() {
-    _install essex migrate ""
+    RELEASE=essex
+    DB_SETTER=migrate
+    rpm -qa 'openstack-nova*-api' --quiet && NODE_ROLE=cc || NODE_ROLE=compute
+    _install
 }
 
 function do_purge() {
@@ -113,14 +143,14 @@ function do_dump() {
 }
 
 ACTION="$1"
-shift
 
 case "$ACTION" in
     install|erase|install_full|migrate|purge|dump)
+        shift
         "do_${ACTION}" "$@"
         ;;
     *)
-        echo "Usage: $0 (install|erase|purge|dump)"
+        echo "Usage: $0 (install|erase|install_full|migrate|purge|dump)"
         exit 1
         ;;
 esac

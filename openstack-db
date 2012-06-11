@@ -11,12 +11,10 @@ function get_date() {
 
 function do_virgin() {
     for DB_NAME in $@; do
-        CC_HOST="127.0.0.1 $(hostname) localhost" # IPv4 address
+        CC_HOST="127.0.0.1 $(hostname) main-node localhost" # IPv4 address
 
-        echo "recreating \`$DB_NAME' db"
         mysqladmin -uroot "-p$DB_ROOT_PWD" -f drop "$DB_NAME" || true
         mysqladmin -uroot "-p$DB_ROOT_PWD" create "$DB_NAME"
-        echo "granting access to \`$DB_NAME' for user \`$DB_USER'"
         for h in $HOSTS $CC_HOST; do
             echo "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'$h' IDENTIFIED BY '$DB_PWD';" | mysql -uroot "-p$DB_ROOT_PWD" mysql
         done
@@ -37,9 +35,7 @@ function do_sync() {
                 nova-manage db sync
                 ;;
             glance)
-                # FIXME: why it has stopped working?
-                #sudo -u glance glance-manage db_sync
-                sudo -u glance glance-manage upgrade
+                sudo -u glance glance-manage db_sync
                 ;;
         esac
         echo "\`$srv' db is synchronized"
@@ -55,19 +51,23 @@ function do_migrate() {
     for srv in $@; do
         case "$srv" in
             keystone)
+                set -e
                 KEYSTONE_DUMP="/tmp/keystone.$(get_date).sql"
                 mysqldump -u$DB_USER -p$DB_PWD keystone > "$KEYSTONE_DUMP"
                 do_virgin keystone keystoneold
                 mysql "-u$DB_USER" "-p$DB_PWD" keystoneold < "$KEYSTONE_DUMP"
                 sudo -u keystone keystone-manage db_sync
-                sudo -u keystone keystone-manage import_legacy "mysql://$DB_USER:$DB_PWD@localhost/keystoneold" \
-                    && rm -f "$KEYSTONE_DUMP"
+                sudo -u keystone keystone-manage import_legacy "mysql://$DB_USER:$DB_PWD@localhost/keystoneold"
+                rm -f "$KEYSTONE_DUMP"
+                set +e
                 ;;
             nova)
                 nova-manage db sync
                 ;;
             glance)
-                sudo -u glance glance-manage db_sync
+                # FIXME: why has it stopped working?
+                #sudo -u glance glance-manage db_sync
+                sudo -u glance glance-manage upgrade
                 ;;
             *)
                 echo "unknown service $srv"
@@ -87,7 +87,7 @@ function do_populate() {
     [ -z "$SERVICES" ] && SERVICES="nova glance keystone"
     do_virgin "$SERVICES"
     for srv in $SERVICES; do
-        for f in "${DB_SCRIPT_DIR}/${srv}"*; do
+        for f in "${DB_SCRIPT_DIR}/${srv}"*.sql; do
             [ -r "$f" ] || continue
             mysql "-u$DB_USER" "-p$DB_PWD" $srv < "$f"
             echo "\`$srv' db is populated with \`$f'"
