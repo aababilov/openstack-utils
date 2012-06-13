@@ -2,7 +2,7 @@
 
 
 OTHER_DAEMONS="messagebus libvirtd mysqld rabbitmq-server"
-OPENSTACK_DAEMONS=$(echo keystone nova-{api,compute,network,objectstore,scheduler,vncproxy,xvpvncproxy} \
+OPENSTACK_DAEMONS=$(echo keystone nova-{network,compute,api,objectstore,scheduler,vncproxy,xvpvncproxy} \
     glance-{registry,api})
 
 function go() {
