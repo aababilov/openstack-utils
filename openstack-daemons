@@ -1,9 +1,9 @@
 #!/bin/bash
 
 
-OTHER_DAEMONS="messagebus libvirtd mysqld rabbitmq-server"
-OPENSTACK_DAEMONS=$(echo keystone nova-{network,compute,api,objectstore,scheduler,vncproxy,xvpvncproxy} \
-    glance-{registry,api})
+OTHER_DAEMONS="messagebus libvirtd mysqld rabbitmq-server memcached"
+OPENSTACK_DAEMONS=$(echo keystone nova-{network,compute,api,objectstore,scheduler,novncproxy,consoleauth} \
+    glance-{registry,api} nova-billing-{heart,os-amqp} focus)
 
 function go() {
     TARGET_DAEMONS="$OPENSTACK_DAEMONS"
