@@ -46,7 +46,9 @@ function do_essex_keystone_db() {
     set -e
     get_id tenant systenant >/dev/null || keystone_client tenant-create --name systenant
     get_id role Admin >/dev/null || keystone_client role-create --name Admin
+    set +e
     ADMIN_USER_ID=$(get_id user admin)
+    set -e
     if [ -n "$ADMIN_USER_ID" ]; then
         keystone_client user-password-update --pass "$ADMIN_PASSWORD" "$ADMIN_USER_ID"
     else
