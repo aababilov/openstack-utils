@@ -9,7 +9,7 @@ DIRS="$(ls -d /usr/bin/{keystone,nova,glance}*  \
 
 INSTALL_OPT=""
 NODE_ROLE=cc
-RELEASE=diablo
+RELEASE=essex
 DB_SCRIPT_DIR=""
 
 function get_date() {
@@ -30,6 +30,7 @@ openstack-nova-api
 openstack-nova-objectstore
 openstack-nova-scheduler
 openstack-nova-volume
+openstack-nova-consoleauth
 "
     for i in "$@"; do
         case "$i" in
@@ -54,8 +55,9 @@ openstack-nova-volume
         PKGS="$COMMON_PKGS"
     fi
     if [ "$RELEASE" == essex ]; then
-      	PKGS="$(echo $PKGS |  sed -r 's/([a-z]+-[a-z]+)([-a-z])?/\1-essex\2/g')"
+        PKGS="$(echo $PKGS |  sed -r 's/([a-z]+-[a-z]+)([-a-z])?/\1-essex\2/g')"
     fi
+    PKGS="$PKGS openstack-noVNC nova-networks-ext"
     echo "installing $RELEASE for $NODE_ROLE node"
     set -e
     yum install libvirt mysql-server MySQL-python $INSTALL_OPT
